@@ -17,11 +17,17 @@ Template._loginButtonsLoggedOutDropdown.helpers(helpers);
 Template._loginButtonsLoggedInDropdown.helpers(helpers);
 
 Template.loginButtonsPopup.onRendered(function () {
-  this.find(".login-buttons-list :first-child").focus();
+  let element = this.find(".login-buttons-list :first-child");
+  if (!element) {
+    element = this.find(".login-suggestion button.login");
+  }
+
+  if (element) element.focus();
 });
 
 Template.accountButtonsPopup.onRendered(function () {
-  this.find(".account-buttons-list :first-child").focus();
+  const element = this.find(".account-buttons-list :first-child");
+  if (element) element.focus();
 });
 
 Template.accountButtonsPopup.events({
@@ -286,7 +292,7 @@ Template.ldapLoginForm.events({
     const username = form.username.value;
     const password = form.password.value;
 
-    Meteor.loginWithLDAP(username, password, {}, function (err) {
+    Meteor.loginWithLDAP(username, password, function (err) {
       if (err) {
         loginButtonsSession.errorMessage(err.reason || "Unknown error");
       }
@@ -333,5 +339,17 @@ Template.devLoginForm.events({
     event.preventDefault();
     const form = instance.find("form");
     loginDevHelper(form.name.value, false, instance.data.linkingNewIdentity);
+  },
+});
+
+Template.samlLoginForm.events({
+  "click button": function (event, instance) {
+    Meteor.loginWithSaml({
+      provider: "default",
+    }, function (error, result) {
+      if (error) {
+        loginButtonsSession.errorMessage(error.reason || "Unknown error");
+      }
+    });
   },
 });

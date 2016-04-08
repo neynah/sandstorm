@@ -85,6 +85,7 @@ IMAGES= \
     shell/public/email-m.svg \
     shell/public/github-m.svg \
     shell/public/key-m.svg \
+    shell/public/ldap-m.svg \
     shell/public/keybase-m.svg \
     shell/public/link-m.svg \
     shell/public/notification-m.svg \
@@ -106,11 +107,6 @@ IMAGES= \
     shell/public/google-color.svg \
     shell/public/email-494949.svg \
     shell/public/close-FFFFFF.svg \
-                                  \
-    shell/public/debug-9E9E9E.svg \
-    shell/public/email-9E9E9E.svg \
-    shell/public/github-9E9E9E.svg \
-    shell/public/google-9E9E9E.svg \
                                   \
     shell/public/install-6A237C.svg \
     shell/public/install-9E40B5.svg \
@@ -249,7 +245,7 @@ shell-env: tmp/.shell-env
 
 # Note that we need Ekam to build node_modules before we can run Meteor, hence
 # the dependency on tmp/.ekam-run.
-tmp/.shell-env: tmp/.ekam-run $(IMAGES) shell/client/changelog.html shell/client/_icons.scss
+tmp/.shell-env: tmp/.ekam-run $(IMAGES) shell/client/changelog.html shell/client/styles/_icons.scss
 	@mkdir -p tmp
 	@touch tmp/.shell-env
 	@mkdir -p node_modules/capnp
@@ -258,7 +254,7 @@ tmp/.shell-env: tmp/.ekam-run $(IMAGES) shell/client/changelog.html shell/client
 icons/node_modules: icons/package.json
 	cd icons && $(METEOR_DEV_BUNDLE)/bin/npm install
 
-shell/client/_icons.scss: icons/node_modules icons/*svg icons/Gruntfile.js
+shell/client/styles/_icons.scss: icons/node_modules icons/*svg icons/Gruntfile.js
 	cd icons && PATH=$(METEOR_DEV_BUNDLE)/bin:$$PATH ./node_modules/.bin/grunt
 
 shell/client/changelog.html: CHANGELOG.md
@@ -315,10 +311,6 @@ shell/public/github-color.svg: icons/github.svg
 	@$(call color,custom color $<)
 	@sed -e 's/#111111/#191919/g' < $< > $@
 
-shell/public/%-9E9E9E.svg: icons/%.svg
-	@$(call color,custom color $<)
-	@sed -e 's/#111111/#9E9E9E/g' < $< > $@
-
 shell/public/email-494949.svg: icons/email.svg
 	@$(call color,custom color $<)
 	@sed -e 's/#111111/#494949/g' < $< > $@
@@ -346,11 +338,6 @@ sandstorm-$(BUILD).tar.xz: bundle
 sandstorm-$(BUILD)-fast.tar.xz: bundle
 	@$(call color,compress fast bundle)
 	@tar c --transform="s,^bundle,sandstorm-$(BUILD)," bundle | xz -c -0 --threads=0 > sandstorm-$(BUILD)-fast.tar.xz
-
-.docker: Dockerfile
-	@$(call color,docker build)
-	@docker build -t sandstorm .
-	@touch .docker
 
 # ====================================================================
 # app-index.spk

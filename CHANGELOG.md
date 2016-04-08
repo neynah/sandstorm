@@ -1,3 +1,56 @@
+### v0.157 (2016-04-05)
+- Self-hosting: New, beautiful first-time setup wizard. (Sadly, if you already have a server, you'll never see it. But a redesign of the full admin UI is coming soon.)
+- Sandstorm for Work: Added ability to disallow sharing outside the organization, which also disallows guest accounts (since they only exist for external sharing purposes).
+
+### v0.156 (2016-04-02)
+- Sandstorm for Work: Added support for SAML login.
+- Sandstorm for Work: LDAP identities now have email addresses.
+- Sandstorm for Work: Removed the option to specify an LDAP DN pattern in favor of the search query approach. DN patterns were going to create problems for future planned features and none of our users so far used the feature to our knowledge.
+- Sharing emails are now sent under the name of the sharer, with their email address specified in reply-to.
+- Fixed several display bugs in Internet Explorer.
+- Fixed that opening your own sharing link would sometimes prompt you to choose incognito mode.
+- Fixed regression causing some popup windows to display partially-off-screen on mobile.
+- Fixed minor display bugs with first-time usage tips on IE and Firefox.
+
+### v0.155 (2016-03-27) [bugfixes]
+- Remove chatty console.log() recently added for debugging. Oops.
+
+### v0.154 (2016-03-27)
+- Apps can now verify a user's email address via a Powerbox interaction.
+- Apps can now more easily tell when multiple sessions originate from the same grain tab (e.g. because the user closed their laptop and then opened it later and continued using the tab). Previously the app had to save a cookie to do this, but now Sandstorm will give it a `tabId`.
+- Sandstorm will now warn you in the admin panel if Websockets aren't working, which tends to break many apps.
+- The Picker Powerbox's query format has changed. Queries are now specified as base64-packed-capnp rather than JSON. This is necessary since the Sandstorm system does not necessarily know the schema of these descriptors and so won't be able to perform a JSON->capnp translation itself.
+- Fixed a refresh loop that could occur when visiting a sharing link that had been revoked.
+- Fixed some email deliverability issues. (Envelope sender was not always being set correctly.)
+- Self-hosting: Fixed possible (but obscure) exception during startup migrations introduced in 0.151.
+- Sandstorm for Work: Fixed "LDAP Search Username Field" not saving.
+
+### v0.153 (2016-03-22) [bugfixes]
+- Fix blank screen when clicking through a share-by-identity email.
+
+### v0.152 (2016-03-21) [bugfixes]
+- Self-hosting: Fixed sending server invites by email (from the "send invites" tabh in the admin settings).
+- Improved error message seen when static publishing TXT records are misconfigured.
+- Improved error message when trying to send a sharing invite to an invalid email address.
+
+### v0.151 (2016-03-20) [bugfixes]
+- Expanded LDAP config for search-query-based user matching to support authenticating the search and adding a search filter. LDAP is nuts.
+- Worked around bug in Chrome 50 which was causing app installs to sometimes fail complaining that no URL was provided.
+- Worked around an unexplained bug observed in the wild causing Sandstorm to fail to load in a browser claiming "no such route", apparently when accessed from behind certain proxies.
+- Worked around bug in libseccomp which could cause Sandstorm binaries built using older kernel headers to fail to filter newer syscalls, possibly making systems insecure. All of our releases have been built against up-to-date headers, so we don't believe our release builds have been affected.
+- Fixed a case where "who has access" dialog could show users named "null".
+- Self-hosting: STMP config has been broken out into components rather than using a "URL" format.
+- Development: Restarting `spk dev` will now reload all grains of the app without the need to manually refresh.
+- Internal refactoring of grain tab management.
+
+### v0.150 (2016-03-13)
+- **Sandstorm for Work:** For self-hosters in a business setting. Initial release supports LDAP and basic organization managament. Requires a feature key to enable. See the "For Work" section of the admin settings.
+- Your set of open grains will now be preserved through refreshes and closing/reopening the browser.
+- The "home" button is now aligned with the sidebar and collapses with it, which maybe makes it clearer that the rest of the top bar is attached to the content.
+- The file-open dialogs when uploading an SPK or a grain backup now filter for the desired file type.
+- Offer templates can now substitute a sluggified grain title into the template body.
+- Browser's autocomplete will no longer draw over sharing autocomplete.
+
 ### v0.149 (2016-02-27) [bugfixes]
 - Fix non-token-specific API host, i.e. all API tokens created before 0.146.
 

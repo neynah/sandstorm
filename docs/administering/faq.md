@@ -49,7 +49,6 @@ MONGO_PORT=6081
 BIND_IP=127.0.0.1
 BASE_URL=http://mydomain.com:6080
 WILDCARD_HOST=*.mydomain.com:6080
-MAIL_URL=
 UPDATE_CHANNEL=dev
 ```
 
@@ -159,11 +158,11 @@ Sometimes Sandstorm seems to be working fine but can launch no apps.
 
 If you see an error screen like this:
 
-![Unable to resolve the server's DNS address, screenshot in Chromium](http://rose.makesad.us/~paulproteus/tmp/unable-to-resolve.png)
+![Unable to resolve the server's DNS address, screenshot in Chromium](https://alpha-evgl4wnivwih0k6mzxt3.sandstorm.io/unable-to-resolve.png)
 
 even when the app management interface seems to work fine:
 
-![Skinny Sandstorm admin interface, showing your app instance](http://rose.makesad.us/~paulproteus/tmp/works-fine.png)
+![Skinny Sandstorm admin interface, showing your app instance](https://alpha-evgl4wnivwih0k6mzxt3.sandstorm.io/works-fine.png)
 
 This typically relates to Sandstorm's need for **wildcard DNS**. If you use HTTPS, you
 will also need **wildcard HTTPS**. Keep reading for more information.
@@ -352,3 +351,22 @@ to address the issue.
 
 To get further help, please email support@sandstorm.io. Please include the most recent 100 lines
 from the MongoDB log file, if you can.
+
+## How do I enable WebSockets proxying? or, Why do some apps seem to crash & reload?
+
+Some Sandstorm users find that apps like Telescope and Groove Basin seem to load an initial screen
+and then refresh the page, in a loop. This is typically a symptom of Sandstorm running behind a
+reverse proxy that needs WebSockets proxying to be enabled.
+
+For `nginx`: consult the
+[nginx-example.conf](https://github.com/sandstorm-io/sandstorm/blob/master/docs/administering/sample-config/nginx-example.conf)
+that we provide. Pay special attention to:
+
+- The `map $http_upgrade $connection_upgrade` section. You need to add this to the config
+  file for this site.
+
+- The two `proxy_set_header` lines relating to `Upgrade` and `Connection`.
+
+For `apache2`: consult the
+[apache-virtualhost.conf](https://github.com/sandstorm-io/sandstorm/blob/master/docs/administering/sample-config/apache-virtualhost.conf)
+that we provide. Pay special attention to the `RewriteRule` stanzas.

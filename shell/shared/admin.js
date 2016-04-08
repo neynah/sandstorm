@@ -31,6 +31,7 @@ Accounts.identityServices.github = {
       method: "loginWithGithub",
       name: "github",
       displayName: "GitHub",
+      linkingNewIdentity: false,
     },
   },
 };
@@ -47,6 +48,7 @@ Accounts.identityServices.google = {
       method: "loginWithGoogle",
       name: "google",
       displayName: "Google",
+      linkingNewIdentity: false,
     },
   },
 };
@@ -69,6 +71,17 @@ Accounts.identityServices.ldap = {
 
   loginTemplate: {
     name: "ldapLoginForm",
+    priority: 21, // Put it at the bottom of the list.
+  },
+};
+
+Accounts.identityServices.saml = {
+  isEnabled: function () {
+    return serviceEnabled("saml") && globalDb.isFeatureKeyValid();
+  },
+
+  loginTemplate: {
+    name: "samlLoginForm",
     priority: 20, // Put it at the bottom of the list.
   },
 };

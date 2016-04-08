@@ -22,10 +22,8 @@ limitations under the License.
       Sandstorm has been updated &mdash; Click here to reload
     </div>
   {{/if}}
-  {{!-- Becomes hamburger menu button in mobile view. --}}
-  <div class="menu-button"></div>
   <ul class="topbar {{#if _menuExpanded.get}}expanded{{/if}}">
-    <ul class="menubar">
+    <ul class="menubar {{#if shrinkNavbar}}shrink-desktop{{/if}}">
       {{#each items}}
         {{#unless onlyPopup}}
           <li class="{{name}}">
@@ -66,6 +64,10 @@ limitations under the License.
       </ul>
     </ul>
   </ul>
+  {{!-- Becomes hamburger menu button in mobile view.  Placed after the topbar so it stacks above
+        the other topbar items without needing z-index, which would make it impossible to have
+        modals cover this button. --}}
+  <div class="menu-button {{#if _menuExpanded.get}}expanded{{/if}}"></div>
   {{!-- We wish to block reload if there are *any* grains open, regardless of the current route --}}
   {{#if grainCount }}
     {{>sandstormTopbarBlockReload}}
@@ -74,15 +76,19 @@ limitations under the License.
   {{#with currentPopup}}
     <div class="popup {{name}}">
       {{#if onlyPopup}}
-        <div class="frame centered">
-          <button class="close-popup">Close</button>
-          {{>popupTemplate data.get}}
+        <div class="frame-container centered">
+          <div class="frame">
+            <button class="close-popup">Close</button>
+            {{>popupTemplate data.get}}
+          </div>
         </div>
       {{else}}
         {{#with position}}
-          <div class="frame align-{{align}}" style="{{align}}: {{px}}px">
-            <button class="close-popup">Close</button>
-            {{>popupTemplateNested ../data.get}}
+          <div class="frame-container align-{{align}}" style="{{align}}: {{px}}px">
+            <div class="frame">
+              <button class="close-popup">Close</button>
+              {{>popupTemplateNested ../data.get}}
+            </div>
           </div>
         {{/with}}
       {{/if}}

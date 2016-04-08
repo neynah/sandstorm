@@ -30,9 +30,16 @@ interface Supervisor {
   getMainView @0 () -> (view :Grain.UiView);
   # Get the grain's main UiView.
 
-  keepAlive @1 ();
+  keepAlive @1 (core :SandstormCore);
   # Must call periodically to prevent supervisor from killing itself off.  Call at least once
   # per minute.
+  #
+  # `core` may be null. If not null, then it is a new copy of the SandstormCore capability which
+  # should replace the old one. This allows the grain to recover if the original SandstormCore
+  # becomes disconnected.
+  #
+  # TODO(reliability): Passing `core` here is an ugly hack. The supervisor really needs a way to
+  #   proactively reconnect.
 
   syncStorage @8 ();
   # Calls syncfs() on /var.
@@ -58,10 +65,10 @@ interface Supervisor {
   # fail. Additionally, the membrane will ensure that any capabilities save()d after passing
   # through this membrane have these requirements applied as well.
   #
-  # (Normally, `requirements` contains one or two entries: a `tokenValid` requirement for the token
-  # from which this capability was restored, and (sometimes) a `permissionsHeld` requirement
+  # (Typically, `requirements` is empty or contains one entry: a `permissionsHeld` requirement
   # against the grain that is restoring the capability (in order to implement the
-  # `requiredPermissions` argument of SandstormCore.restore())).
+  # `requiredPermissions` argument of SandstormCore.restore()). `requirements` should NOT contain
+  # a requirement that `parentToken` be valid; this is implied.)
   #
   # `parentToken` is the API token restored to get this capability. The receiver will want to keep
   # this in memory in order to pass to `SandstormCore.makeChildToken()` later, if the live
@@ -296,6 +303,9 @@ struct ApiTokenOwner {
 
       title @7 :Text;
       # Title as chosen by the user.
+
+      # Fields below this line are not actually allowed to be passed to save(), but are added
+      # internally.
 
       lastUsed @8 :Int64;
       # The last time the user used this API token with the associated grain, in milliseconds

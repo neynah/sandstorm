@@ -249,6 +249,9 @@ Sessions = new Mongo.Collection("sessions");
 //   grainId:  _id of the grain to which this session is connected.
 //   hostId: ID part of the hostname from which this grain is being served. I.e. this replaces the
 //       '*' in WILDCARD_HOST.
+//   tabId: Random value unique to the grain tab in which this session is displayed. Typically
+//       every session has a different `tabId`, but embedded sessions (including in the powerbox)
+//       have the same `tabId` as the outer session.
 //   timestamp:  Time of last keep-alive message to this session.  Sessions time out after some
 //       period.
 //   userId:  User ID of the user who owns this session.
@@ -365,6 +368,14 @@ ApiTokens = new Mongo.Collection("apiTokens");
 //                  database when that happens. This field contains the boolean true to signify that
 //                  it has been set.
 //       ipInterface: Ditto IpNetwork, except it's an IpInterface.
+//       emailVerifier: An EmailVerifier capability that is implemented by the frontend. The
+//                      value is an object containing the field `services`, which itself is a
+//                      list of names of identity providers that are trusted to verify addresses.
+//                      If `services` is omitted or falsy, all configured identity providers are
+//                      trusted. Note that a malicious user could specify invalid names in the
+//                      list; they should be ignored.
+//       verifiedEmail: An VerifiedEmail capability that is implemented by the frontend.
+//                      An object containing `verifierId`, `tabId`, and `address`.
 //   parentToken: If present, then this token represents exactly the capability represented by
 //              the ApiToken with _id = parentToken, except possibly (if it is a UiView) attenuated
 //              by `roleAssignment` (if present). To facilitate permissions computations, if the
@@ -412,9 +423,17 @@ ApiTokens = new Mongo.Collection("apiTokens");
 //       }
 //     }
 //     frontendRef :union {
-//        notificationHandle :Text;
-//        ipNetwork :Bool;
-//        ipInterface :Bool;
+//       notificationHandle :Text;
+//       ipNetwork :Bool;
+//       ipInterface :Bool;
+//       emailVerifier :group {
+//         services :List(String);
+//       }
+//       verifiedEmail :group {
+//         verifierId :Text;
+//         tabId :Text;
+//         address :Text;
+//       }
 //     }
 //     child :group {
 //       parentToken :Text;
@@ -511,7 +530,7 @@ Settings = new Mongo.Collection("settings");
 // interface.
 //
 // Each contains:
-//   _id:       The name of the setting. eg. "MAIL_URL"
+//   _id:       The name of the setting. eg. "smtpConfig"
 //   value:     The value of the setting.
 //   automaticallyReset: Sometimes the server needs to automatically reset a setting. When it does
 //                       so, it will also write an object to this field indicating why the reset was
@@ -603,6 +622,14 @@ FeatureKey = new Mongo.Collection("featureKey");
 //          (a feature key with comments removed and base64 decoded)
 //
 // This is only intended to be visible on the server.
+
+SetupSession = new Mongo.Collection("setupSession");
+// Responsible for storing information about setup sessions.  Contains a single document with three
+// keys:
+//
+//   _id: "current-session"
+//   creationDate: Date object indicating when this session was created.
+//   hashedSessionId: the sha256 of the secret session id that was returned to the client
 
 if (Meteor.isServer) {
   Meteor.publish("credentials", function () {
@@ -909,6 +936,7 @@ SandstormDb = function () {
     appIndex: AppIndex,
     keybaseProfiles: KeybaseProfiles,
     featureKey: FeatureKey,
+    setupSession: SetupSession,
 
     // Intentionally omitted:
     // - Migrations, since it's used only within this package.
@@ -985,22 +1013,28 @@ _.extend(SandstormDb.prototype, {
     return false;
   },
 
-  identityInOrganization: function (identityId) {
-    let identity = Meteor.users.findOne({ _id: identityId });
+  isIdentityInOrganization: function (identity) {
     if (!identity || !identity.services) {
       return false;
     }
 
-    if (identity.services.email && this.getOrganizationEmail()) {
-      let domain = "@" + this.getOrganizationEmail();
-      if (identity.services.email.email.toLowerCase().endsWith(domain)) {
+    const orgMembership = this.getOrganizationMembership();
+    const googleEnabled = orgMembership && orgMembership.google && orgMembership.google.enabled;
+    const googleDomain = orgMembership && orgMembership.google && orgMembership.google.domain;
+    const emailEnabled = orgMembership && orgMembership.emailToken && orgMembership.emailToken.enabled;
+    const emailDomain = orgMembership && orgMembership.emailToken && orgMembership.emailToken.domain;
+    const ldapEnabled = orgMembership && orgMembership.ldap && orgMembership.ldap.enabled;
+    const samlEnabled = orgMembership && orgMembership.saml && orgMembership.saml.enabled;
+    if (emailEnabled && emailDomain && identity.services.email) {
+      if (identity.services.email.email.toLowerCase().split("@").pop() === emailDomain) {
         return true;
       }
-    } else if (identity.services.ldap && this.getOrganizationLdap()) {
+    } else if (ldapEnabled && identity.services.ldap) {
       return true;
-    } else if (identity.services.google && this.getOrganizationGoogle()) {
-      let domain = this.getOrganizationGoogle();
-      if (identity.services.google.hd.toLowerCase() === domain) {
+    } else if (samlEnabled && identity.services.saml) {
+      return true;
+    } else if (googleEnabled && googleDomain && identity.services.google && identity.services.google.hd) {
+      if (identity.services.google.hd.toLowerCase() === googleDomain) {
         return true;
       }
     }
@@ -1014,7 +1048,8 @@ _.extend(SandstormDb.prototype, {
     }
 
     for (let i = 0; i < user.loginIdentities.length; i++) {
-      if (this.identityInOrganization(user.loginIdentities[i].id)) {
+      let identity = Meteor.users.findOne({ _id: user.loginIdentities[i].id });
+      if (this.isIdentityInOrganization(identity)) {
         return true;
       }
     }
@@ -1112,7 +1147,12 @@ _.extend(SandstormDb.prototype, {
 
   getDenormalizedGrainInfo: function getDenormalizedGrainInfo(grainId) {
     const grain = this.getGrain(grainId);
-    const pkg = this.collections.packages.findOne(grain.packageId);
+    let pkg = this.collections.packages.findOne(grain.packageId);
+
+    if (!pkg) {
+      pkg = this.collections.devPackages.findOne(grain.packageId);
+    }
+
     const appTitle = (pkg && pkg.manifest && pkg.manifest.appTitle) || { defaultText: "" };
     const grainInfo = { appTitle: appTitle };
 
@@ -1187,6 +1227,15 @@ _.extend(SandstormDb.prototype, {
     return setting && setting.value;
   },
 
+  getSettingWithFallback: function (name, fallbackValue) {
+    const value = this.getSetting(name);
+    if (value === undefined) {
+      return fallbackValue;
+    }
+
+    return value;
+  },
+
   addUserActions: function (packageId) {
     //TODO(cleanup): implement this with meteor methods rather than client-side inserts/removes.
     const pack = Packages.findOne(packageId);
@@ -1247,13 +1296,46 @@ _.extend(SandstormDb.prototype, {
     return setting ? setting.value : "";  // empty if subscription is not ready.
   },
 
+  getSmtpConfig() {
+    const setting = Settings.findOne({ _id: "smtpConfig" });
+    return setting ? setting.value : undefined; // undefined if subscription is not ready.
+  },
+
   getReturnAddress: function () {
-    const setting = Settings.findOne({ _id: "returnAddress" });
-    return setting ? setting.value : "";  // empty if subscription is not ready.
+    const config = this.getSmtpConfig();
+    return config && config.returnAddress || ""; // empty if subscription is not ready.
+  },
+
+  getReturnAddressWithDisplayName: function (identityId) {
+    check(identityId, String);
+    const identity = this.getIdentity(identityId);
+    const displayName = identity.profile.name + " (via " + this.getServerTitle() + ")";
+
+    // First remove any instances of characters that cause trouble for SimpleSmtp. Ideally,
+    // we could escape such characters with a backslash, but that does not seem to help here.
+    const sanitized = displayName.replace(/"|<|>|\\|\r/g, "");
+
+    return "\"" + sanitized + "\" <" + this.getReturnAddress() + ">";
+  },
+
+  getPrimaryEmail: function (accountId, identityId) {
+    check(accountId, String);
+    check(identityId, String);
+
+    const identity = this.getIdentity(identityId);
+    const senderEmails = SandstormDb.getVerifiedEmails(identity);
+    const senderPrimaryEmail = _.findWhere(senderEmails, { primary: true });
+    const accountPrimaryEmailAddress = this.getUser(accountId).primaryEmail;
+    if (_.findWhere(senderEmails, { email: accountPrimaryEmailAddress })) {
+      return accountPrimaryEmailAddress;
+    } else if (senderPrimaryEmail) {
+      return senderPrimaryEmail.email;
+    } else {
+      return null;
+    }
   },
 
   isFeatureKeyValid: function () {
-    if (Meteor.settings.public.isFeatureKeyValid) return true;
     const featureKey = this.currentFeatureKey();
     return !!featureKey;
   },
@@ -1278,24 +1360,94 @@ _.extend(SandstormDb.prototype, {
     return setting ? setting.value : "";  // empty if subscription is not ready.
   },
 
+  getLdapSearchUsername: function () {
+    const setting = Settings.findOne({ _id: "ldapSearchUsername" });
+    return setting ? setting.value : "";  // empty if subscription is not ready.
+  },
+
   getLdapNameField: function () {
     const setting = Settings.findOne({ _id: "ldapNameField" });
     return setting ? setting.value : "";  // empty if subscription is not ready.
   },
 
-  getOrganizationEmail: function () {
-    const setting = Settings.findOne({ _id: "organizationEmail" });
+  getLdapEmailField: function () {
+    const setting = Settings.findOne({ _id: "ldapEmailField" });
+    return setting ? setting.value : "mail";
+    // default to "mail". This setting was added later, and so could potentially be unset.
+  },
+
+  getLdapExplicitDnSelected: function () {
+    const setting = Settings.findOne({ _id: "ldapExplicitDnSelected" });
     return setting && setting.value;
   },
 
-  getOrganizationGoogle: function () {
-    const setting = Settings.findOne({ _id: "organizationGoogle" });
+  getLdapFilter: function () {
+    const setting = Settings.findOne({ _id: "ldapFilter" });
+    return setting ? setting.value : "";  // empty if subscription is not ready.
+  },
+
+  getLdapSearchBindDn: function () {
+    const setting = Settings.findOne({ _id: "ldapSearchBindDn" });
+    return setting ? setting.value : "";  // empty if subscription is not ready.
+  },
+
+  getLdapSearchBindPassword: function () {
+    const setting = Settings.findOne({ _id: "ldapSearchBindPassword" });
+    return setting ? setting.value : "";  // empty if subscription is not ready.
+  },
+
+  getOrganizationMembership: function () {
+    const setting = Settings.findOne({ _id: "organizationMembership" });
     return setting && setting.value;
   },
 
-  getOrganizationLdap: function () {
-    const setting = Settings.findOne({ _id: "organizationLdap" });
-    return setting ? setting.value : false;
+  getOrganizationEmailEnabled: function () {
+    const membership = this.getOrganizationMembership();
+    return membership && membership.emailToken && membership.emailToken.enabled;
+  },
+
+  getOrganizationEmailDomain: function () {
+    const membership = this.getOrganizationMembership();
+    return membership && membership.emailToken && membership.emailToken.domain;
+  },
+
+  getOrganizationGoogleEnabled: function () {
+    const membership = this.getOrganizationMembership();
+    return membership && membership.google && membership.google.enabled;
+  },
+
+  getOrganizationGoogleDomain: function () {
+    const membership = this.getOrganizationMembership();
+    return membership && membership.google && membership.google.domain;
+  },
+
+  getOrganizationLdapEnabled: function () {
+    const membership = this.getOrganizationMembership();
+    return membership && membership.ldap && membership.ldap.enabled;
+  },
+
+  getOrganizationSamlEnabled: function () {
+    const membership = this.getOrganizationMembership();
+    return membership && membership.saml && membership.saml.enabled;
+  },
+
+  getOrganizationDisallowGuests: function () {
+    return this.getOrganizationDisallowGuestsRaw() && this.isFeatureKeyValid();
+  },
+
+  getOrganizationDisallowGuestsRaw: function () {
+    const setting = Settings.findOne({ _id: "organizationSettings" });
+    return setting && setting.value && setting.value.disallowGuests;
+  },
+
+  getSamlEntryPoint: function () {
+    const setting = Settings.findOne({ _id: "samlEntryPoint" });
+    return setting ? setting.value : "";  // empty if subscription is not ready.
+  },
+
+  getSamlPublicCert: function () {
+    const setting = Settings.findOne({ _id: "samlPublicCert" });
+    return setting ? setting.value : "";  // empty if subscription is not ready.
   },
 });
 

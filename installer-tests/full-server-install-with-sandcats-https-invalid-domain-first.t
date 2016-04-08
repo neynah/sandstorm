@@ -8,8 +8,8 @@ $[slow]0
 $[run]sudo CURL_USER_AGENT=testing OVERRIDE_SANDCATS_BASE_DOMAIN=sandcats-dev.sandstorm.io OVERRIDE_SANDCATS_API_BASE=https://sandcats-dev-machine.sandstorm.io OVERRIDE_SANDCATS_CURL_PARAMS=-k bash /vagrant/install.sh
 $[slow]Sandstorm makes it easy to run web apps on your own server. You can have:
 
-1. A full server with automatic setup (press enter to accept this default)
-2. A development server, for writing apps.
+1. A typical install, to use Sandstorm (press enter to accept this default)
+2. A development server, for working on Sandstorm itself or localhost-based app development
 
 How are you going to use this Sandstorm install? [1] $[type]1
 We're going to:
@@ -26,9 +26,9 @@ $[slow]Choose your desired Sandcats subdomain (alphanumeric, max 20 characters).
 Type the word none to skip this step, or help for help.
 What *.sandcats-dev.sandstorm.io subdomain would you like? []$[type]help
 Sandcats.io is a free dynamic DNS service run by the Sandstorm development team.
-What Sandcats domain do you want to recover? [none] $[type]example.has.periods.in.it.example.com
+What Sandcats subdomain do you want to recover? [none] $[type]example.has.periods.in.it.example.com
 this function just wants the name of your subdomain
-What Sandcats domain do you want to recover? [none] $[type]none
+What Sandcats subdomain do you want to recover? [none] $[type]none
 What *.sandcats-dev.sandstorm.io subdomain would you like? []$[type]gensym
 We need your email on file so we can help you recover your domain if you lose access. No spam.
 Enter your email address: [] $[type]install-script@asheesh.org

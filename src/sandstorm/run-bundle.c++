@@ -821,6 +821,7 @@ public:
 
   kj::MainBuilder::Validity adminToken() {
     changeToInstallDir();
+    checkAccess();
 
     // Get 20 random bytes for token.
     kj::byte bytes[20];
@@ -844,9 +845,10 @@ public:
       context.exitInfo(hexString);
     } else {
       context.exitInfo(kj::str("Generated new admin token.\n\nPlease proceed to ", config.rootUrl,
-        "/admin/settings/", hexString, " in order to access the admin settings page and configure ",
-        "your login system. This token will expire in 15 min, and if you take too long, you will ",
-        "have to regenerate a new token with `sandstorm admin-token`."));
+        "/setup/token/", hexString, " in order to access the admin settings page and configure "
+        "your login system. You must visit the link within 15 minutes, after which you will have "
+        "24 hours to complete the setup process.  If you need more time, you can always generate "
+        "a new token with `sandstorm admin-token`."));
     }
   }
 
@@ -924,6 +926,19 @@ private:
   void changeToInstallDir() {
     KJ_SYSCALL(chdir(getInstallDir().cStr()));
     changedDir = true;
+  }
+
+  void checkAccess() {
+    KJ_ASSERT(changedDir);
+    if (access("../var/sandstorm", W_OK) == -1) {
+      if (errno == EACCES) {
+        KJ_FAIL_REQUIRE(
+            "Sandstorm was not run with appropriate privileges; rerun as root or the user for "
+            "which it was installed.");
+      } else {
+        KJ_FAIL_SYSCALL("access", errno);
+      }
+    }
   }
 
   void checkOwnedByRoot(kj::StringPtr path, kj::StringPtr title) {

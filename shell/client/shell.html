@@ -142,7 +142,11 @@ limitations under the License.
     <div class="grain-container {{#if active}}active-grain{{else}}inactive-grain{{/if}}">
     {{#if error}}
       {{#if unauthorized}}
-        {{> requestAccess}}
+        {{#if token}}
+          {{> revokedShareLink}}
+        {{else}}
+          {{> requestAccess}}
+        {{/if}}
       {{else}}
         {{#if notFound}}
            <p class="grain-not-found grain-interstitial">
@@ -165,7 +169,9 @@ limitations under the License.
       <div class="grain-interstitial">
         <p>With which of your identities would you like to open this grain?</p>
         {{> identityPicker identityPickerData}}
+        {{#if interstitial.showIncognito}}
         <button class="incognito-button" data-token="{{token}}">Open in Incognito Mode</button>
+        {{/if}}
       </div>
     {{else}}
       {{#if interstitial.directShare}}
@@ -231,6 +237,10 @@ limitations under the License.
 
 <template name="invalidToken">
    <pre> Invalid token: {{token}} </pre>
+</template>
+
+<template name="revokedShareLink">
+  <p class="grain-interstitial">Sorry, this link has been revoked.</p>
 </template>
 
 <template name="noLayout">
@@ -538,6 +548,11 @@ limitations under the License.
     </div>
     {{#if completionState.clear}}
     <div class="button-container" role="presentation">
+      {{#with invitationExplanation}}
+        {{!-- Display the entire message in the hover text, in case "overflow: ellipsis" causes
+              part of the message to be hidden in the main view. --}}
+        <p class="invitation-explanation" title="{{.}}">{{.}}</p>
+      {{/with}}
       <button>Send</button>
     </div>
     {{/if}}
@@ -926,7 +941,19 @@ limitations under the License.
        href="https://docs.sandstorm.io/en/latest/administering/faq/#why-do-i-see-an-error-when-i-try-to-launch-an-app-even-when-the-sandstorm-interface-works-fine">
       Learn more.</a>  You'll need to adjust DNS, SSL/TLS certificates, or edit the sandstorm.conf
     file. Once you have addressed the issue, reload this page. If you're still having problems,
-    email us at support@sandstorm.io.
+    <a href="https://github.com/sandstorm-io/sandstorm/issues">please file an issue.</a>
+  </div>
+  {{/if}}
+
+  {{#if websocketSeemsBroken}}
+  <div class="websocket-broken-warning">
+    WARNING: This server seems to be unable to create a WebSocket. Sandstorm may appear to run fine,
+    but many apps will fail to run properly.
+    <a target="_blank"
+       href="https://docs.sandstorm.io/en/latest/administering/faq/#how-do-i-enable-websockets-proxying-or-why-do-some-apps-seem-to-crash-reload">
+      Learn more.</a>  Usually this is caused by a reverse proxy like nginx or Apache that needs to
+      be reconfigured. If you think you are seeing this message in error, please reload this page or
+    <a href="https://github.com/sandstorm-io/sandstorm/issues">file an issue.</a>
   </div>
   {{/if}}
 
@@ -956,7 +983,7 @@ limitations under the License.
           {{#linkTo route="adminAdvanced" data=getToken}}Advanced{{/linkTo}}
         </li>
         <li id="featurekey-tab" class="{{#if featureKeyActive}}active{{/if}}">
-          {{#linkTo route="adminFeatureKey" data=getToken}}For Work{{/linkTo}}
+          {{#linkTo route="adminFeatureKeyPage" data=getToken}}For Work{{/linkTo}}
         </li>
       </ul>
       {{> Template.dynamic template=adminTab}}
@@ -985,24 +1012,19 @@ limitations under the License.
 
 <template name="adminSettings">
   {{setDocumentTitle}}
-  <form id="admin-settings-form">
-    <p>
+  <form id="admin-settings-form" autocomplete="off">
+    <h4>Basic login providers</h4>
+
+    <p>Choose which services users may use to identify themselves. Anyone can log in, but only users you {{#linkTo route="adminInvites" data=getToken}}invite{{/linkTo}} will be able to install apps or create files.</p>
+
+    <p class="login-providers">
       <label><input type="checkbox" class="oauth-checkbox" name="googleLogin"
                     value="value" checked={{googleSetting.value}} data-servicename="google">
         Enable Google Login
         (<a class="configure-oauth" data-servicename="google" href="">configure</a>)
         (<a class="reset-login-tokens" data-servicename="google" href="">log out all users</a>)
-      </label><br>
-
-      {{#if isFeatureKeyValid}}
-      <label>
-        Google Organization Domain:
-        <input type="text" name="organizationGoogle" value="{{organizationGoogle}}">
       </label>
-      {{/if}}
 
-      <span class="details">Users within this Google Apps for Work domain will automatically be upgraded to full accounts upon logging in. Leave blank to disable.</span>
-      <br>
       {{#with googleSetting.automaticallyReset}}
         <p class="alert-danger reset-reason">
           Google login was automatically disabled
@@ -1020,7 +1042,7 @@ limitations under the License.
         Enable Github Login
         (<a class="configure-oauth" data-servicename="github" href="">configure</a>)
         (<a class="reset-login-tokens" data-servicename="github" href="">log out all users</a>)
-      </label><br>
+      </label>
       {{#with githubSetting.automaticallyReset}}
         <p class="alert-danger reset-reason">
           GitHub login was automatically disabled
@@ -1033,35 +1055,103 @@ limitations under the License.
           You will likely need to update the OAuth redirect URL in GitHub application settings.
         </p>
       {{/with}}
-      <label><input type="checkbox" name="emailTokenLogin" value="value" checked={{emailTokenEnabled}}> Enable Passwordless Email Login</label><br>
-      {{#if isFeatureKeyValid}}
-        <label>
-          Email Organization Domain:
-          <input type="text" name="organizationEmail" value="{{organizationEmail}}">
-        </label>
-        <span class="details">Users within this email domain will automatically be upgraded to full accounts upon logging in. Leave blank to disable.</span>
-        <br>
-        <hr>
-        <label>
-          <input type="checkbox" name="ldapLogin" value="value" checked={{ldapEnabled}}> Enable LDAP Login
-        </label><br>
-          <label>LDAP Url: <input id="ldapUrl" type="text" name="ldapUrl" value="{{ldapUrl}}"></label>
-          <label>LDAP DN Pattern ($USERNAME will be replaced): <input id="ldapDnPattern" type="text" name="ldapDnPattern" value="{{ldapDnPattern}}"></label>
-          <label>LDAP Base Search Dn: <input id="ldapBase" type="text" name="ldapBase" value="{{ldapBase}}"></label>
-          <label>LDAP Name Field: <input id="ldapNameField" type="text" name="ldapNameField" value="{{ldapNameField}}"></label>
-          <label>Auto-upgrade LDAP accounts: <input type="checkbox" name="organizationLdap" value="value" checked={{organizationLdap}}></label>
-        <hr>
-      {{/if}}
-      <span class="details">Choose which services users may use to identify themselves. Anyone can log in, but only users you {{#linkTo route="adminInvites" data=getToken}}invite{{/linkTo}} will be able to install apps or create files.</span></p>
-    <p>SMTP Url: <button id="admin-settings-send-toggle">Test</button><input id="smptUrl" type="text" name="smtpUrl" value="{{smtpUrl}}"><br>
-      <span class="details">Address of an SMTP relay server, like <code>smtp://user:pass@host:port</code>, which will be used by email apps and to send {{#linkTo route="adminInvites" data=getToken}}email invites{{/linkTo}}. The SMTP server should be configured to allow sending email from your Sandstorm domain and from email addresses that will be used to send invites. Read the <a href="https://docs.sandstorm.io/en/latest/administering/email/#outgoing-smtp">docs</a> for more details.</span>
+      <label><input type="checkbox" name="emailTokenLogin" value="value" checked={{emailTokenEnabled}}> Enable Passwordless Email Login</label>
     </p>
-    {{#if isEmailTestActive}}
-      <p>
-        Send test email to: <input id="email-test-to" type="text">
-        <p><button id="admin-settings-send-test">Send</button></p>
+    {{#if isFeatureKeyValid}}
+      <h4>LDAP login</h4>
+      <p class="forwork-note">Sandstorm for Work feature</p>
+
+      <p><label>
+        <input type="checkbox" name="ldapLogin" value="value" checked={{ldapEnabled}}> Enable LDAP Login
+      </label><br>
+        <label>LDAP Url: <input id="ldapUrl" type="text" name="ldapUrl" value="{{ldapUrl}}"></label>
+
+        <label>LDAP Base Search Dn: <input id="ldapBase" type="text" name="ldapBase" value="{{ldapBase}}"></label>
+        <label>LDAP Search Username Field: <input id="ldapSearchUsername" type="text" name="ldapSearchUsername" value="{{ldapSearchUsername}}"></label>
+        <label>LDAP Search Bind Dn: (optional, needed if your server doesn't allow unauthenticated searches): <input type="text" name="ldapSearchBindDn" value="{{ldapSearchBindDn}}" placeholder="eg. uid=admin,OU=Users,DC=example,DC=com"></label>
+        <label>LDAP Search Bind Password: (optional, needed if specifying bind Dn above): <input type="password" name="ldapSearchBindPassword" value="{{ldapSearchBindPassword}}" ></label>
+        <label>LDAP Search Filter (optional, see <a href="http://www.ietf.org/rfc/rfc2254.txt">RFC2254</a>): <input id="ldapFilter" type="text" name="ldapFilter" value="{{ldapFilter}}" placeholder="eg. (&(email=*@bar.com)(!(ou=students))"></label>
+
+        <label>LDAP Full Name Field: <input id="ldapNameField" type="text" name="ldapNameField" value="{{ldapNameField}}"></label>
+        <label>LDAP Email Field: <input id="ldapEmailField" type="text" name="ldapEmailField" value="{{ldapEmailField}}"></label>
       </p>
+
+      <h4>SAML login</h4>
+      <p class="forwork-note">Sandstorm for Work feature</p>
+
+      <p>Your SAML IDP should be configured to return a persistent nameID. In addition you <b>*must*</b> configure your IDP to provide two extra attributes, "email" and "displayName". If your SAML provider asks for the single sign on url of this service provider, then supply it with "{{rootUrl}}/_saml/validate/default".</p><br>
+
+      <label>
+        <input type="checkbox" name="samlLogin" value="value" checked={{samlEnabled}}> Enable SAML Login
+      </label><br>
+      <label>SAML provider entry point URL: <input type="text" name="samlEntryPoint" value="{{samlEntryPoint}}" placeholder="(eg. https://YOUR_SAML_PROVIDER.com/sso/saml)"></label>
+      <label>SAML cert for above provider: <textarea name="samlPublicCert" value="{{samlPublicCert}}" placeholder="base64 encoded cert (eg. MIID...8F==)" rows="4"></textarea></label>
+      <!-- TODO(someday): allow a private cert to be provided for signing messages in the other direction (or autogenerate one and provide admins the public cert here?) -->
+
+      <h4>Define organization</h4>
+      <p class="forwork-note">Sandstorm for Work feature</p>
+
+      <p>These users will be considered part of your organization. They will automatically be
+        able to log in, install apps, and create grains.</p>
+
+      <p>
+        <label><input type="checkbox" name="isOrganizationLdap" value="value" checked={{isOrganizationLdap}}> Users authenticated via LDAP.</label><br>
+        <label><input type="checkbox" name="isOrganizationSaml" value="value" checked={{isOrganizationSaml}}> Users authenticated via SAML.</label><br>
+        <label><input type="checkbox" name="isOrganizationGoogle" value="value" checked={{isOrganizationGoogle}}> Users authenticated via Google Apps for Work domain:</label> <input type="text" name="organizationGoogle" value="{{organizationGoogle}}" placeholder="example.com">
+        <label><input type="checkbox" name="isOrganizationEmail" value="value" checked={{isOrganizationEmail}}>Users authenticated via passwordless email login with addresses at domain:</label> <input type="text" name="organizationEmail" value="{{organizationEmail}}" placeholder="example.com"></p>
+      <p>
+        <label><input type="checkbox" name="disallowGuests" value="value" checked={{disallowGuests}}> Disallow collaboration with users outside the organization.</label><br>
+        <span class="details">Users will be required to log in as a member of your organization to view sharing links. Guest access will be disabled.</span>
+      </p>
+    {{else}}
+      <p>To get support for LDAP, SAML, and organization management, enable
+        <a href="{{featuresPath}}">Sandstorm for Work</a>.</p>
     {{/if}}
+    <div class="legacy-email-config">
+      <h4>SMTP Configuration: <button id="admin-settings-send-toggle">Test</button></h4>
+      {{#if isEmailTestActive}}
+        <label>
+          Send test email to: <input id="email-test-to" type="text">
+        </label>
+        <button id="admin-settings-send-test">Send</button>
+      {{/if}}
+
+      {{#let smtp=smtpConfig}}
+      <label>Relay hostname:
+        <input type="text" name="smtpHostname" value="{{smtp.hostname}}" />
+      </label>
+      <span class="details">The address of the SMTP relay server to be used to send email login
+          messages, sharing links,
+          {{#linkTo route="adminInvites" data=getToken}}invitations{{/linkTo}},
+          and other notification emails.
+          The SMTP server should be configured to allow sending email from your Sandstorm domain and
+          from email addresses that will be used to send invites. Read the
+          <a href="https://docs.sandstorm.io/en/latest/administering/email/#outgoing-smtp">docs</a>
+          for more details.
+      </span>
+
+      <label>Relay port:
+        <input type="number" name="smtpPort" value="{{smtp.port}}"/>
+      </label>
+      <span class="details">SMTP (unencrypted or with StartTLS) uses port 25, TLS-encrypted SMTPS
+          uses port 465.</span>
+
+      <label>Username:
+        <input type="text" name="smtpUsername" value="{{smtp.auth.user}}" />
+      </label>
+      <span class="details">Optional.  Use if your email relay requires authentication.</span>
+
+      <label>Password:
+        <input type="password" name="smtpPassword" value="{{smtp.auth.pass}}" />
+      </label>
+      <span class="details">Optional.  Use if your email relay requires authentication.</span>
+
+      <label>Return Address:
+        <input type="email" name="smtpReturnAddress" value="{{smtp.returnAddress}}">
+      </label>
+      <span class="details">E-mail address to place in the "From" header of email notifications from this server. You can specify a "no-reply" address, but we suggest using an address that users can mail if they need help.</span>
+      {{/let}}
+    </div>
     <p><button id="admin-settings-save">Save</button></p>
   </form>
 </template>
@@ -1268,11 +1358,9 @@ limitations under the License.
 
 <template name="adminAdvanced">
   {{setDocumentTitle}}
-  <form id="admin-settings-form">
+  <form id="admin-settings-form" autocomplete="off">
     <p>Server Title: <input type="text" name="serverTitle" value="{{serverTitle}}"><br>
       <span class="details">The name of this server, for use when communicating with users. Example: "Bob's Sandstorm Server"</span></p>
-    <p>Return Address: <input type="email" name="returnAddress" value="{{returnAddress}}"><br>
-      <span class="details">E-mail address to place in the "From" header of email notifications from this server. You can specify a "no-reply" address, but we suggest using an address that users can mail if they need help.</span></p>
     <p>Splash URL: <input type="text" name="splashUrl" value="{{splashUrl}}" placeholder="https://example.com"><br>
       <span class="details">This web page will be displayed in the background behind the login dialog (the home page when logged out). For security reasons, the page must be hosted within this Sandstorm server's wildcard host (otherwise it will be blocked by <code>Content-Security-Policy</code>). We suggest using a static web publishing app like <a href="https://apps.sandstorm.io/app/nqmcqs9spcdpmqyuxemf0tsgwn8awfvswc58wgk375g4u25xv6yh?host={{origin}}" target="_blank">Hacker CMS</a> to host the content. <strong>WARNING: This feature is experimental; in particular the style and positioning of the login box is subject to change without notice.</strong> Please <a href="https://github.com/sandstorm-io/sandstorm/issues" target="_blank">let us know</a> if you'd like to see it stabilize.</span></p>
     <p>Signup Dialog: <input type="text" name="signupDialog" value="{{signupDialog}}"><br>
@@ -1305,9 +1393,17 @@ limitations under the License.
   </form>
 </template>
 
-<template name="adminFeatureKey">
+<template name="adminFeatureKeyPage">
   {{setDocumentTitle}}
 
+  {{> adminFeatureKey . }}
+
+  {{#if hasFeatureKey }}
+    <p><a href="{{settingsPath}}">Go to the settings page to configure Sandstorm for Work features.</a></p>
+  {{/if}}
+</template>
+
+<template name="adminFeatureKey">
   {{#if currentFeatureKey}}
     <h4>Current feature key</h4>
     {{#with featureKey=currentFeatureKey}}
@@ -1354,6 +1450,7 @@ limitations under the License.
     {{else}}
       <div class="feature-key-button-row">
         <button class="button-primary feature-key-upload-button">Upload new feature key...</button>
+        <button class="button-secondary feature-key-delete-button">Delete feature key</button>
       </div>
     {{/if}}
   {{else}}
@@ -1366,8 +1463,7 @@ limitations under the License.
     <p>Sandstorm for Work adds LDAP support, with more features arriving soon.</p>
     <a class="button-secondary request-feature-key"
        target="_blank"
-       href="https://docs.google.com/a/corp.sandstorm.io/forms/d/15RikXG1b-giAf93PJiCd2bkPBvGhR_MT3ocziEzbqOw/viewform"
-       >
+       href="https://sandstorm.io/get-feature-key">
        Request a feature key
     </a>
   {{/if}}
@@ -1381,10 +1477,10 @@ limitations under the License.
       {{/if}}
     {{/with}}
     <label>Feature key:
-    <textarea class="feature-key" placeholder="Paste feature key here..."></textarea>
+      <textarea class="feature-key" placeholder="Paste feature key here..." value="{{text}}"></textarea>
     </label>
     <div class="feature-key-button-row">
-      <button class="check-key">Verify</button>
+      <button class="check-key" disabled={{disabled}}>Verify</button>
     </div>
     <label>Or select a file to upload: <input name="feature-key" type="file" /></label>
   </form>

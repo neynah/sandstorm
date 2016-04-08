@@ -49,13 +49,26 @@
 #include <pwd.h>
 #include <grp.h>
 #include <sys/inotify.h>
-#include <seccomp.h>
 #include <map>
 #include <unordered_map>
 #include <execinfo.h>
 #include <linux/netlink.h>
 #include <linux/rtnetlink.h>
 #include <sys/eventfd.h>
+#include <sys/resource.h>
+
+// We need to define these constants before libseccomp has a chance to inject bogus
+// values for them. See https://github.com/seccomp/libseccomp/issues/27
+#ifndef __NR_seccomp
+#define __NR_seccomp 317
+#endif
+#ifndef __NR_bpf
+#define __NR_bpf 321
+#endif
+#ifndef __NR_userfaultfd
+#define __NR_userfaultfd 323
+#endif
+#include <seccomp.h>
 
 #include <sandstorm/grain.capnp.h>
 #include <sandstorm/supervisor.capnp.h>
@@ -707,6 +720,7 @@ void SupervisorMain::setupSupervisor() {
   KJ_SYSCALL(prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0));
 
   closeFds();
+  setResourceLimits();
   checkPaths();
   unshareOuter();
   setupFilesystem();
@@ -768,6 +782,14 @@ void SupervisorMain::closeFds() {
       close(fd);
     }
   }
+}
+
+void SupervisorMain::setResourceLimits() {
+  struct rlimit limit;
+  memset(&limit, 0, sizeof(limit));
+  limit.rlim_cur = 1024;
+  limit.rlim_max = 4096;
+  KJ_SYSCALL(setrlimit(RLIMIT_NOFILE, &limit));
 }
 
 void SupervisorMain::checkPaths() {
@@ -1100,21 +1122,12 @@ void SupervisorMain::setupSeccomp() {
   // that run in-kernel (albeit with a very limited instruction set).
   CHECK_SECCOMP(seccomp_rule_add(ctx, SCMP_ACT_ERRNO(EINVAL), SCMP_SYS(prctl), 1,
       SCMP_A0(SCMP_CMP_EQ, PR_SET_SECCOMP)));
-#ifndef __NR_seccomp
-#define __NR_seccomp 317
-#endif
   CHECK_SECCOMP(seccomp_rule_add(ctx, SCMP_ACT_ERRNO(ENOSYS), SCMP_SYS(seccomp), 0));
-#ifndef __NR_bpf
-#define __NR_bpf 321
-#endif
   CHECK_SECCOMP(seccomp_rule_add(ctx, SCMP_ACT_ERRNO(ENOSYS), SCMP_SYS(bpf), 0));
 
   // New syscalls that don't seem useful to Sandstorm apps therefore we will disallow them.
   // TODO(cleanup): Can we somehow specify "disallow all calls greater than N" to preemptively
   //   disable things until we've reviewed them?
-#ifndef __NR_userfaultfd
-#define __NR_userfaultfd 323
-#endif
   CHECK_SECCOMP(seccomp_rule_add(ctx, SCMP_ACT_ERRNO(ENOSYS), SCMP_SYS(userfaultfd), 0));
 
   // TOOD(someday): See if we can get away with turning off mincore, madvise, sysinfo etc.
@@ -1161,8 +1174,7 @@ void SupervisorMain::unshareNetwork() {
 
   // Check if iptables module is available, skip the rest if not.
   if (!isIpTablesAvailable) {
-    KJ_LOG(WARNING,
-        "ip_tables kernel module not loaded; cannot set up transparent network forwarding.");
+    // TODO(soon): Put a runtime warning here, so that people can notice if this code won't work.
     return;
   }
 
@@ -1583,7 +1595,7 @@ public:
   SaveWrapper(AppPersistent<>::Client&& cap, capnp::List<MembraneRequirement>::Reader _requirements,
               capnp::Data::Reader parentToken, SandstormCore::Client sandstormCore)
       : cap(kj::mv(cap)), parentToken(kj::heapArray<const byte>(parentToken)),
-        sandstormCore(sandstormCore) {
+        sandstormCore(kj::mv(sandstormCore)) {
     builder.setRoot(kj::mv(_requirements));
     requirements = builder.getRoot<capnp::List<MembraneRequirement>>().asReader();
   }
@@ -1906,10 +1918,11 @@ class SupervisorMain::SupervisorImpl final: public Supervisor::Server {
 public:
   inline SupervisorImpl(kj::UnixEventPort& eventPort, MainView<>::Client&& mainView,
                         DiskUsageWatcher& diskWatcher, WakelockSet& wakelockSet,
-                        kj::AutoCloseFd startAppEvent, SandstormCore::Client& sandstormCore)
+                        kj::AutoCloseFd startAppEvent, SandstormCore::Client sandstormCore,
+                        kj::Own<CapRedirector> coreRedirector)
       : eventPort(eventPort), mainView(kj::mv(mainView)), diskWatcher(diskWatcher),
         wakelockSet(wakelockSet), sandstormCore(sandstormCore),
-        startAppEvent(kj::mv(startAppEvent)) {}
+        coreRedirector(kj::mv(coreRedirector)), startAppEvent(kj::mv(startAppEvent)) {}
 
   kj::Promise<void> getMainView(GetMainViewContext context) override {
     ensureStarted();
@@ -1919,6 +1932,12 @@ public:
 
   kj::Promise<void> keepAlive(KeepAliveContext context) override {
     sandstorm::keepAlive = true;
+
+    auto params = context.getParams();
+    if (params.hasCore()) {
+      coreRedirector->setTarget(params.getCore());
+    }
+
     return kj::READY_NOW;
   }
 
@@ -2052,6 +2071,7 @@ private:
   DiskUsageWatcher& diskWatcher;
   WakelockSet& wakelockSet;
   SandstormCore::Client sandstormCore;
+  kj::Own<CapRedirector> coreRedirector;
   kj::AutoCloseFd startAppEvent;
 
   void ensureStarted() {
@@ -2148,26 +2168,14 @@ public:
   }
 };
 
-struct SupervisorMain::DefaultSystemConnector::AcceptedConnection {
-  kj::Own<kj::AsyncIoStream> connection;
-  capnp::TwoPartyVatNetwork network;
-  capnp::RpcSystem<capnp::rpc::twoparty::VatId> rpcSystem;
-
-  explicit AcceptedConnection(capnp::Capability::Client bootstrapInterface,
-                              kj::Own<kj::AsyncIoStream>&& connectionParam)
-      : connection(kj::mv(connectionParam)),
-        network(*connection, capnp::rpc::twoparty::Side::SERVER),
-        rpcSystem(capnp::makeRpcServer(network, kj::mv(bootstrapInterface))) {}
-};
-
-auto SupervisorMain::DefaultSystemConnector::run(
-    kj::AsyncIoContext& ioContext, Supervisor::Client mainCap) const
-    -> SystemConnector::RunResult {
-  auto listener = kj::heap<TwoPartyServerWithClientBootstrap>(kj::mv(mainCap));
-  auto core = listener->getBootstrap().castAs<SandstormCore>();
+kj::Promise<void> SupervisorMain::DefaultSystemConnector::run(
+    kj::AsyncIoContext& ioContext, Supervisor::Client mainCap,
+    kj::Own<CapRedirector> coreRedirector) const {
+  auto listener = kj::heap<TwoPartyServerWithClientBootstrap>(
+      kj::mv(mainCap), kj::mv(coreRedirector));
 
   unlink("socket");  // Clear stale socket, if any.
-  auto acceptTask = ioContext.provider->getNetwork().parseAddress("unix:socket", 0).then(
+  return ioContext.provider->getNetwork().parseAddress("unix:socket", 0).then(
       [KJ_MVCAP(listener)](kj::Own<kj::NetworkAddress>&& addr) mutable {
     auto serverPort = addr->listen();
 
@@ -2177,8 +2185,6 @@ auto SupervisorMain::DefaultSystemConnector::run(
     auto promise = listener->listen(kj::mv(serverPort));
     return promise.attach(kj::mv(listener));
   });
-
-  return { kj::mv(acceptTask), kj::mv(core) };
 }
 
 // -----------------------------------------------------------------------------
@@ -2251,11 +2257,10 @@ auto SupervisorMain::DefaultSystemConnector::run(
   //   want to wrap the UiView and cache session objects.  Perhaps we could do this by making
   //   them persistable, though it's unclear how that would work with SessionContext.
   Supervisor::Client mainCap = kj::heap<SupervisorImpl>(
-      ioContext.unixEventPort, kj::mv(app), diskWatcher, wakelockSet, kj::mv(startEventFd), coreCap);
+      ioContext.unixEventPort, kj::mv(app), diskWatcher, wakelockSet, kj::mv(startEventFd),
+      coreCap, kj::addRef(*coreRedirector));
 
-  auto runner = systemConnector->run(ioContext, kj::mv(mainCap));
-  auto acceptTask = kj::mv(runner.task);
-  coreRedirector->setTarget(runner.sandstormCore);
+  auto acceptTask = systemConnector->run(ioContext, kj::mv(mainCap), kj::mv(coreRedirector));
 
   // Wait for disconnect or accept loop failure or disk watch failure, then exit.
   acceptTask.exclusiveJoin(kj::mv(diskWatcherTask))

@@ -28,9 +28,16 @@ Template.sandstormAccountSettings.onCreated(function () {
 
   // TODO(cleanup): Figure out a better way to pass in this data. Perhaps it should be part of
   //   the URL?
-  if (Session.get("linkingIdentityError")) {
-    this._actionCompleted.set(
-      { error: "Error linking identity: " + Session.get("linkingIdentityError") });
+  let err = Session.get("linkingIdentityError");
+  if (err) {
+    if (err.alreadyLinked) {
+      this._actionCompleted.set(
+        { success: "Identity was already linked to this account" });
+    } else {
+      this._actionCompleted.set(
+        { error: "Error linking identity: " + err });
+    }
+
     Session.set("linkingIdentityError");
   }
 
@@ -264,10 +271,7 @@ Template.sandstormAccountsFirstSignIn.helpers({
   },
 });
 
-const submitProfileForm = function (event, cb) {
-  event.preventDefault();
-  const form = Template.instance().find("form");
-
+const submitProfileForm = function (form, cb) {
   if (form.agreedToTerms && !form.agreedToTerms.checked) {
     alert("You must agree to the terms to continue.");
     return;
@@ -312,9 +316,17 @@ const submitProfileForm = function (event, cb) {
   BlackrockPayments.processOptins(form);
 };
 
+Template._accountProfileEditor.onCreated(function () {
+  this.submitProfileForm = submitProfileForm; // Stored on the object so setup wizard can call it directly.
+  this._profileSaved = new ReactiveVar(true);
+  this._setActionCompleted = this.data.setActionCompleted || function () {};
+});
+
 Template._accountProfileEditor.events({
   "submit form.account-profile-editor": function (event, instance) {
-    submitProfileForm(event, function () {
+    event.preventDefault();
+    const form = Template.instance().find("form");
+    submitProfileForm(form, function () {
       instance._profileSaved.set(true);
       instance._setActionCompleted({ success: "profile saved" });
     });
@@ -338,14 +350,7 @@ Template._accountProfileEditor.events({
     event.preventDefault();
     Meteor.logout();
   },
-});
 
-Template._accountProfileEditor.onCreated(function () {
-  this._profileSaved = new ReactiveVar(true);
-  this._setActionCompleted = this.data.setActionCompleted || function () {};
-});
-
-Template._accountProfileEditor.events({
   "click .picture button": function (event, instance) {
     event.preventDefault();
 

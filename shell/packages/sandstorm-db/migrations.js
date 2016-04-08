@@ -438,6 +438,111 @@ function assignBonuses() {
   }
 }
 
+function splitSmtpUrl() {
+  const smtpUrlSetting = Settings.findOne({ _id: "smtpUrl" });
+  const smtpUrl = smtpUrlSetting ? smtpUrlSetting.value : process.env.MAIL_URL;
+  const returnAddress = Settings.findOne({ _id: "returnAddress" });
+
+  // Default values.
+  const smtpConfig = {
+    hostname: "localhost",
+    port: "25",
+    auth: undefined,
+    returnAddress: returnAddress.value,
+  };
+
+  let parsed;
+  try {
+    parsed = smtpUrl && Url.parse(smtpUrl);
+  } catch (e) {}
+
+  if (parsed) {
+    // If there was a SMTP URL previously defined, import its data.
+    let auth = undefined;
+    if (parsed.auth) {
+      const colonIndex = parsed.auth.indexOf(":");
+      let user = undefined;
+      let pass = undefined;
+      if (colonIndex !== -1) {
+        user = parsed.auth.slice(0, colonIndex);
+        pass = parsed.auth.slice(colonIndex + 1);
+      }
+
+      auth = {
+        user,
+        pass,
+      };
+    }
+
+    // Override defaults with previous config's values.
+    smtpConfig.hostname = parsed.hostname || "localhost";
+    smtpConfig.port = parsed.port || "25";
+    smtpConfig.auth = auth;
+  }
+
+  Settings.upsert({ _id: "smtpConfig" }, { value: smtpConfig });
+  Settings.remove({ _id: "returnAddress" });
+  Settings.remove({ _id: "smtpUrl" });
+}
+
+function smtpPortShouldBeNumber() {
+  const entry = Settings.findOne({ _id: "smtpConfig" });
+  if (entry) {
+    const setting = entry.value;
+    if (setting.port) {
+      setting.port = _.isNumber(setting.port) ? setting.port : parseInt(setting.port);
+      Settings.upsert({ _id: "smtpConfig" }, { value: setting });
+    }
+  }
+}
+
+function consolidateOrgSettings() {
+  const orgGoogleDomain = Settings.findOne({ _id: "organizationGoogle" });
+  const orgEmailDomain = Settings.findOne({ _id: "organizationEmail" });
+  const orgLdap = Settings.findOne({ _id: "organizationLdap" });
+  const orgSaml = Settings.findOne({ _id: "organizationSaml" });
+
+  const orgMembership = {
+    google: {
+      enabled: orgGoogleDomain ? !!orgGoogleDomain.value : false,
+      domain: orgGoogleDomain ? orgGoogleDomain.value : "",
+    },
+    email: {
+      enabled: orgEmailDomain ? !!orgEmailDomain.value : false,
+      domain: orgEmailDomain ? orgEmailDomain.value : "",
+    },
+    ldap: {
+      enabled: orgLdap ? orgLdap.value : false,
+    },
+    saml: {
+      enabled: orgSaml ? orgSaml.value : false,
+    },
+  };
+
+  Settings.upsert({ _id: "organizationMembership" }, { value: orgMembership });
+  Settings.remove({ _id: "organizationGoogle" });
+  Settings.remove({ _id: "organizationEmail" });
+  Settings.remove({ _id: "organizationLdap" });
+  Settings.remove({ _id: "organizationSaml" });
+}
+
+function unsetSmtpDefaultHostnameIfNoUsersExist() {
+  // We don't actually want to have the default hostname "localhost" set.
+  // If the user has already finished configuring their server, then this migration should do
+  // nothing (since we might break their deployment), but for new installs (which will have no users
+  // at the time this migration runs) we'll unset the hostname if it's still the previously-filled
+  // default value.
+  const hasUsers = Meteor.users.findOne();
+  if (!hasUsers) {
+    const entry = Settings.findOne({ _id: "smtpConfig" });
+    const smtpConfig = entry.value;
+    if (smtpConfig.hostname === "localhost") {
+      smtpConfig.hostname = "";
+      Settings.upsert({ _id: "smtpConfig" }, { value: smtpConfig });
+    }
+  }
+}
+
 // This must come after all the functions named within are defined.
 // Only append to this list!  Do not modify or remove list entries;
 // doing so is likely change the meaning and semantics of user databases.
@@ -462,6 +567,10 @@ const MIGRATIONS = [
   initServerTitleAndReturnAddress,
   sendReferralNotifications,
   assignBonuses,
+  splitSmtpUrl,
+  smtpPortShouldBeNumber,
+  consolidateOrgSettings,
+  unsetSmtpDefaultHostnameIfNoUsersExist,
 ];
 
 function migrateToLatest() {
