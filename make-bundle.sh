@@ -87,8 +87,12 @@ cp -r shell-build/bundle bundle
 rm -f bundle/README
 cp meteor-bundle-main.js bundle/sandstorm-main.js
 
-# Meteor wants us to do "npm install" in the bundle to prepare it.
-(cd bundle/programs/server && "$METEOR_DEV_BUNDLE/bin/npm" install)
+# Meteor wants us to do `npm install` in the bundle to prepare it.
+# The fibers package builds native extensions, choosing the target v8 version based on
+# the version of `/usr/bin/env node`. We need to make it does not pick up the wrong binary,
+# so we prepend `METEOR_DEV_BUNDLE/bin` to `PATH`.
+(cd bundle/programs/server && \
+ PATH=$METEOR_DEV_BUNDLE/bin:$PATH "$METEOR_DEV_BUNDLE/bin/npm" install)
 
 # Copy over key binaries.
 mkdir -p bundle/bin
@@ -97,6 +101,10 @@ cp bin/sandstorm bundle/sandstorm
 cp $METEOR_DEV_BUNDLE/bin/node bundle/bin
 cp $METEOR_DEV_BUNDLE/mongodb/bin/{mongo,mongod} bundle/bin
 cp $(which zip unzip xz gpg) bundle/bin
+
+if [ ! -z "${EXTRA_SANDSTORM_BUNDLE_BIN:-}" ]; then
+  cp $EXTRA_SANDSTORM_BUNDLE_BIN bundle/bin
+fi
 
 # Older installs might be symlinking /usr/local/bin/spk to
 # /opt/sandstorm/latest/bin/spk, while newer installs link it to

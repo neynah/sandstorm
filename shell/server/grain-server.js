@@ -121,10 +121,12 @@ Meteor.publish("tokenInfo", function (token) {
         let identity = globalDb.getIdentity(apiToken.owner.user.identityId);
         let metadata = apiToken.owner.user.denormalizedGrainMetadata;
         if (identity && metadata) {
+          SandstormDb.fillInLoginId(identity);
           this.added("tokenInfo", token,
-                     { identityOwner: _.pick(identity, "_id", "profile"),
+                     { identityOwner: _.pick(identity, "_id", "profile", "loginId"),
                        grainId: grainId,
-                       grainMetadata: metadata, });
+                       grainMetadata: metadata,
+                     });
         } else {
           this.added("tokenInfo", token, { invalidToken: true });
         }
@@ -176,8 +178,6 @@ Meteor.publish("requestingAccess", function (grainId) {
     throw new Meteor.Error(403, "Must be logged in to request access.");
   }
 
-  const identityIds = SandstormDb.getUserIdentityIds(Meteor.users.findOne({ _id: this.userId }));
-
   const grain = globalDb.getGrain(grainId);
   if (!grain) {
     throw new Meteor.Error(404, "Grain not found.");
@@ -188,8 +188,12 @@ Meteor.publish("requestingAccess", function (grainId) {
                Random.id(), { grainId: grainId, identityId: grain.identityId });
   }
 
+  const identityIds = SandstormDb.getUserIdentityIds(Meteor.users.findOne({ _id: this.userId }));
+  const ownerIdentityIds = SandstormDb.getUserIdentityIds(
+      Meteor.users.findOne({ _id: grain.userId }));
+
   const _this = this;
-  const query = ApiTokens.find({ grainId: grainId, accountId: grain.userId,
+  const query = ApiTokens.find({ grainId: grainId, identityId: { $in: ownerIdentityIds },
                                  parentToken: { $exists: false },
                                  "owner.user.identityId": { $in: identityIds },
                                  revoked: { $ne: true }, });
@@ -440,6 +444,10 @@ Meteor.methods({
                 loginNote = "Github account with username " + intrinsicName;
               } else if (contact.profile.service === "email") {
                 loginNote = "email address " + intrinsicName;
+              } else if (contact.profile.service === "ldap") {
+                loginNote = "LDAP username " + intrinsicName;
+              } else if (contact.profile.service === "saml") {
+                loginNote = "SAML ID " + intrinsicName;
               } else {
                 throw new Meteor.Error(500, "Unknown service to email share link.");
               }
@@ -516,6 +524,10 @@ Meteor.methods({
         identityNote = " (" + identity.profile.intrinsicName + " on GitHub)";
       } else if (identity.profile.service === "email") {
         identityNote = " (" + identity.profile.intrinsicName + ")";
+      } else if (identity.profile.service === "ldap") {
+        identityNote = " (" + identity.profile.intrinsicName + " on LDAP)";
+      } else if (identity.profile.service === "saml") {
+        identityNote = " (" + identity.profile.intrinsicName + " on SAML)";
       }
 
       const message = identity.profile.name + identityNote +

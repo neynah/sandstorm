@@ -1355,11 +1355,16 @@ set_permissions() {
     return
   fi
 
+  local ADMIN_TOKEN_PATH=
+  if [ -e "${ADMIN_TOKEN_PATH}" ] ; then
+    ADMIN_TOKEN_PATH="var/sandstorm/adminToken"
+  fi
+
   # Set ownership of files.  We want the dirs to be root:sandstorm but the contents to be
   # sandstorm:sandstorm.
-  chown -R $SERVER_USER:$GROUP var/{log,pid,mongo} var/sandstorm/{apps,grains,downloads,adminToken}
-  chown root:$GROUP var/{log,pid,mongo,sandstorm} var/sandstorm/{apps,grains,downloads,adminToken}
-  chmod -R g=rwX,o= var/{log,pid,mongo,sandstorm} var/sandstorm/{apps,grains,downloads,adminToken}
+  chown -R $SERVER_USER:$GROUP var/{log,pid,mongo} var/sandstorm/{apps,grains,downloads} $ADMIN_TOKEN_PATH
+  chown root:$GROUP var/{log,pid,mongo,sandstorm} var/sandstorm/{apps,grains,downloads} $ADMIN_TOKEN_PATH
+  chmod -R g=rwX,o= var/{log,pid,mongo,sandstorm} var/sandstorm/{apps,grains,downloads} $ADMIN_TOKEN_PATH
 }
 
 install_sandstorm_symlinks() {
