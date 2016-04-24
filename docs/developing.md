@@ -112,6 +112,6 @@ their file format.
 
 ---
 
-## Documentation on how to contribute to Sandstorm
+## Contributing to Sandstorm
 
-To find out how to contribute to Sandstorm, read the [wiki on GitHub](https://github.com/sandstorm-io/sandstorm/wiki).
+To find out how you can contribute to Sandstorm, visit our [community page](https://sandstorm.io/community).
