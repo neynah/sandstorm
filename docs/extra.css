@@ -93,3 +93,7 @@
 .next-step.demo-app::before {
   background-image: url("https://alpha-evgl4wnivwih0k6mzxt3.sandstorm.io/try-demo-app.svg");
 }
+
+#email-us {
+  padding: 20px 0;
+}
